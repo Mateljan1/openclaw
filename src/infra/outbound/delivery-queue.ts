@@ -386,6 +386,8 @@ const PERMANENT_ERROR_PATTERNS: readonly RegExp[] = [
   /chat_id is empty/i,
   /recipient is not a valid/i,
   /outbound not configured for channel/i,
+  // Discord 10003: target channel does not exist (e.g. user ID used as channel ID).
+  /unknown channel/i,
 ];
 
 export function isPermanentDeliveryError(error: string): boolean {
