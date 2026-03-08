@@ -84,9 +84,12 @@ describe("loadPluginManifestRegistry", () => {
 
     const registry = loadRegistry(candidates);
     // Different origins: higher-precedence (global) wins, no warning.
+    // Both records are kept so the loader can produce a disabled "overridden"
+    // entry for the lower-precedence copy.
     expect(countDuplicateWarnings(registry)).toBe(0);
-    expect(registry.plugins.length).toBe(1);
+    expect(registry.plugins.length).toBe(2);
     expect(registry.plugins[0]?.origin).toBe("global");
+    expect(registry.plugins[1]?.origin).toBe("bundled");
   });
 
   it("emits duplicate warning for truly distinct plugins with same id and same origin", () => {

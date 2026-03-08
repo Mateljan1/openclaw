@@ -140,6 +140,20 @@ function forkSessionFromParent(params: {
       const sessionFile = manager.createBranchedSession(leafId) ?? manager.getSessionFile();
       const sessionId = manager.getSessionId();
       if (sessionFile && sessionId) {
+        // createBranchedSession defers file creation when the parent has no
+        // assistant message. Ensure the file exists so downstream code can
+        // read the forked transcript immediately.
+        if (!fs.existsSync(sessionFile)) {
+          const header = {
+            type: "session",
+            version: CURRENT_SESSION_VERSION,
+            id: sessionId,
+            timestamp: new Date().toISOString(),
+            cwd: manager.getCwd(),
+            parentSession: parentSessionFile,
+          };
+          fs.writeFileSync(sessionFile, `${JSON.stringify(header)}\n`, "utf-8");
+        }
         return { sessionId, sessionFile };
       }
     }

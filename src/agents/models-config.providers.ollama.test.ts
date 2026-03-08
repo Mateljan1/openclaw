@@ -33,6 +33,8 @@ describe("resolveOllamaApiBase", () => {
 describe("Ollama provider", () => {
   it("should not include ollama when no API key is configured", async () => {
     const agentDir = mkdtempSync(join(tmpdir(), "openclaw-test-"));
+    // Isolate from any real Ollama key in the user's global auth profile store
+    vi.stubEnv("OPENCLAW_AGENT_DIR", agentDir);
     const providers = await resolveImplicitProviders({ agentDir });
 
     expect(providers?.ollama).toBeUndefined();

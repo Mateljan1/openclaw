@@ -222,10 +222,15 @@ export function loadPluginManifestRegistry(params: {
       // > bundled). This is the common case where a user installs a plugin
       // globally (~/.openclaw/extensions/) that also ships bundled in
       // node_modules — the user copy should win without noise.
+      // Both records are kept so the loader can produce a disabled "overridden"
+      // entry for the lower-precedence copy.
       const existingRank = PLUGIN_ORIGIN_RANK[existing.candidate.origin];
       const candidateRank = PLUGIN_ORIGIN_RANK[candidate.origin];
       if (existingRank !== candidateRank) {
         if (candidateRank < existingRank) {
+          // The new candidate wins — move old record out of the winner slot
+          // and append it so the loader can still see it.
+          const loser = records[existing.recordIndex];
           records[existing.recordIndex] = buildRecord({
             manifest,
             candidate,
@@ -234,8 +239,22 @@ export function loadPluginManifestRegistry(params: {
             configSchema,
           });
           seenIds.set(manifest.id, { candidate, recordIndex: existing.recordIndex });
+          if (loser) {
+            records.push(loser);
+          }
+        } else {
+          // The existing record wins — still emit the lower-precedence
+          // candidate so the loader can mark it as overridden/disabled.
+          records.push(
+            buildRecord({
+              manifest,
+              candidate,
+              manifestPath: manifestRes.manifestPath,
+              schemaCacheKey,
+              configSchema,
+            }),
+          );
         }
-        // Either way, the higher-precedence copy wins; skip without warning.
         continue;
       }
 
