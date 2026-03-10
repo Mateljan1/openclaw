@@ -517,6 +517,38 @@ export function applyGoogleTurnOrderingFix(params: {
   return { messages: sanitized, didPrepend };
 }
 
+/**
+ * Strips assistant messages that were persisted after a failed LLM request.
+ *
+ * pi-agent-core writes an assistant entry with `stopReason: "error"` (and
+ * typically empty or near-empty content) each time the API rejects a request.
+ * When retries pile up, these create structural imbalances (consecutive user
+ * turns, orphaned thinking blocks) that are difficult to self-heal.
+ *
+ * Removing them at sanitize-time is safe because:
+ * - The original error info is still in the JSONL file (we only filter the
+ *   in-memory transcript sent to the LLM).
+ * - `repairToolUseResultPairing` already skips tool call extraction for
+ *   error/aborted messages, so they serve no structural purpose.
+ */
+export function stripErrorStateAssistantMessages(messages: AgentMessage[]): AgentMessage[] {
+  let changed = false;
+  const result: AgentMessage[] = [];
+  for (const msg of messages) {
+    if (
+      msg &&
+      typeof msg === "object" &&
+      (msg as { role?: unknown }).role === "assistant" &&
+      (msg as { stopReason?: unknown }).stopReason === "error"
+    ) {
+      changed = true;
+      continue;
+    }
+    result.push(msg);
+  }
+  return changed ? result : messages;
+}
+
 export async function sanitizeSessionHistory(params: {
   messages: AgentMessage[];
   modelApi?: string | null;
@@ -537,8 +569,15 @@ export async function sanitizeSessionHistory(params: {
       modelId: params.modelId,
     });
   const withInterSessionMarkers = annotateInterSessionUserMessages(params.messages);
+
+  // Strip error-state assistant messages (stopReason: "error") that accumulate
+  // when LLM requests fail repeatedly.  These empty/near-empty messages break
+  // user/assistant alternation and can corrupt thinking-block transcripts.
+  // See: https://github.com/openclaw/openclaw/issues/41571
+  const withoutErrorAssistants = stripErrorStateAssistantMessages(withInterSessionMarkers);
+
   const sanitizedImages = await sanitizeSessionMessagesImages(
-    withInterSessionMarkers,
+    withoutErrorAssistants,
     "session:history",
     {
       sanitizeMode: policy.sanitizeMode,
