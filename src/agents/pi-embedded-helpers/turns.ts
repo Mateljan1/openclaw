@@ -1,7 +1,7 @@
 import type { AgentMessage } from "@mariozechner/pi-agent-core";
 
 type AnthropicContentBlock = {
-  type: "text" | "toolUse" | "toolResult";
+  type: "text" | "toolUse" | "toolCall" | "toolResult";
   text?: string;
   id?: string;
   name?: string;
@@ -59,16 +59,19 @@ function stripDanglingAnthropicToolUses(messages: AgentMessage[]): AgentMessage[
       }
     }
 
-    // Filter out tool_use blocks that don't have matching tool_result
+    // Filter out tool_use / tool_call blocks that don't have matching tool_result.
+    // pi-agent-core stores tool calls as type "toolCall"; Anthropic's native format
+    // uses "toolUse".  Accept both so the function works regardless of which
+    // representation is active in the transcript.
     const originalContent = Array.isArray(assistantMsg.content) ? assistantMsg.content : [];
     const filteredContent = originalContent.filter((block) => {
       if (!block) {
         return false;
       }
-      if (block.type !== "toolUse") {
+      if (block.type !== "toolUse" && block.type !== "toolCall") {
         return true;
       }
-      // Keep tool_use if its id is in the valid set
+      // Keep tool_use/tool_call if its id is in the valid set
       return validToolUseIds.has(block.id || "");
     });
 

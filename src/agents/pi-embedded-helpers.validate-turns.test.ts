@@ -511,4 +511,71 @@ describe("validateAnthropicTurns strips dangling tool_use blocks", () => {
     const result = validateAnthropicTurns(msgs);
     expect(result).toHaveLength(3);
   });
+
+  it("strips dangling toolCall blocks (pi-agent-core format)", () => {
+    // pi-agent-core stores tool calls as type "toolCall", not "toolUse".
+    // stripDanglingAnthropicToolUses must handle both representations.
+    const msgs = asMessages([
+      { role: "user", content: [{ type: "text", text: "Use tool" }] },
+      {
+        role: "assistant",
+        content: [
+          { type: "toolCall", id: "tc-1", name: "read_file", input: {} },
+          { type: "text", text: "Let me check" },
+        ],
+      },
+      { role: "user", content: [{ type: "text", text: "Hello" }] },
+    ]);
+
+    const result = validateAnthropicTurns(msgs);
+
+    expect(result).toHaveLength(3);
+    const assistantContent = (result[1] as { content?: unknown[] }).content;
+    expect(assistantContent).toEqual([{ type: "text", text: "Let me check" }]);
+  });
+
+  it("preserves toolCall blocks with matching tool_result", () => {
+    const msgs = asMessages([
+      { role: "user", content: [{ type: "text", text: "Use tool" }] },
+      {
+        role: "assistant",
+        content: [
+          { type: "toolCall", id: "tc-1", name: "read_file", input: {} },
+          { type: "text", text: "Result" },
+        ],
+      },
+      {
+        role: "user",
+        content: [
+          { type: "toolResult", toolUseId: "tc-1", content: [{ type: "text", text: "file data" }] },
+        ],
+      },
+    ]);
+
+    const result = validateAnthropicTurns(msgs);
+
+    expect(result).toHaveLength(3);
+    const assistantContent = (result[1] as { content?: unknown[] }).content;
+    expect(assistantContent).toEqual([
+      { type: "toolCall", id: "tc-1", name: "read_file", input: {} },
+      { type: "text", text: "Result" },
+    ]);
+  });
+
+  it("inserts fallback text when all toolCall content would be removed", () => {
+    const msgs = asMessages([
+      { role: "user", content: [{ type: "text", text: "Use tool" }] },
+      {
+        role: "assistant",
+        content: [{ type: "toolCall", id: "tc-1", name: "exec", input: {} }],
+      },
+      { role: "user", content: [{ type: "text", text: "Hello" }] },
+    ]);
+
+    const result = validateAnthropicTurns(msgs);
+
+    expect(result).toHaveLength(3);
+    const assistantContent = (result[1] as { content?: unknown[] }).content;
+    expect(assistantContent).toEqual([{ type: "text", text: "[tool calls omitted]" }]);
+  });
 });
