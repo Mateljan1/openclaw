@@ -572,6 +572,38 @@ export function filterBootstrapFilesForSession(
   return files.filter((file) => MINIMAL_BOOTSTRAP_ALLOWLIST.has(file.name));
 }
 
+/**
+ * Minimal glob matcher for the Node < 22 fallback (no fs.glob).
+ * Supports `*` (single-segment wildcard) and `**` (multi-segment wildcard).
+ * Brace expansion and `?` are NOT supported — patterns using those features
+ * require Node 22+ `fs.glob`.
+ */
+function simpleGlobMatch(pattern: string, filePath: string): boolean {
+  // Convert glob pattern to regex
+  const parts = pattern.replace(/\\/g, "/").split("/");
+  let regexStr = "^";
+  for (let i = 0; i < parts.length; i++) {
+    if (i > 0) {
+      regexStr += "/";
+    }
+    const part = parts[i];
+    if (part === "**") {
+      // Match zero or more path segments
+      regexStr += "(?:.+/)?";
+      // Peek at next part; if it exists, the ** consumes up to it
+      if (i + 1 < parts.length) {
+        continue;
+      }
+      regexStr += ".*";
+    } else {
+      // Escape regex special chars except * which maps to [^/]*
+      regexStr += part.replace(/[.*+?^${}()|[\]\\]/g, (ch) => (ch === "*" ? "[^/]*" : `\\${ch}`));
+    }
+  }
+  regexStr += "$";
+  return new RegExp(regexStr).test(filePath);
+}
+
 export async function loadExtraBootstrapFiles(
   dir: string,
   extraPatterns: string[],
@@ -592,17 +624,31 @@ export async function loadExtraBootstrapFilesWithDiagnostics(
   }
   const resolvedDir = resolveUserPath(dir);
 
-  // Resolve glob patterns into concrete file paths
+  // Resolve glob patterns into concrete file paths.
+  // fs.glob is available in Node 22+; fall back to recursive readdir + minimatch
+  // on older runtimes so the feature degrades gracefully.
   const resolvedPaths = new Set<string>();
   for (const pattern of extraPatterns) {
     if (pattern.includes("*") || pattern.includes("?") || pattern.includes("{")) {
       try {
-        const matches = fs.glob(pattern, { cwd: resolvedDir });
-        for await (const m of matches) {
-          resolvedPaths.add(m);
+        if (typeof fs.glob === "function") {
+          const matches = fs.glob(pattern, { cwd: resolvedDir });
+          for await (const m of matches) {
+            resolvedPaths.add(m);
+          }
+        } else {
+          // Node < 22 fallback: enumerate files recursively and test against the
+          // pattern using a simple path.sep-aware matcher.
+          const entries = await fs.readdir(resolvedDir, { recursive: true });
+          for (const entry of entries) {
+            const normalized = entry.replace(/\\/g, "/");
+            if (simpleGlobMatch(pattern, normalized)) {
+              resolvedPaths.add(normalized);
+            }
+          }
         }
       } catch {
-        // glob not available or pattern error — fall back to literal
+        // readdir or pattern error — fall back to literal
         resolvedPaths.add(pattern);
       }
     } else {
